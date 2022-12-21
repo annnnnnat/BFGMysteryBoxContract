@@ -1,4 +1,3 @@
-// contracts/GameItem.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
@@ -9,7 +8,7 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract GameItem is ERC721URIStorage, Ownable {
+contract BFGMysteryBox is ERC721URIStorage, Ownable {
     using SafeERC20 for IERC20;
 
     using Counters for Counters.Counter;
@@ -29,16 +28,18 @@ contract GameItem is ERC721URIStorage, Ownable {
     uint256 public neededAvax;
     uint256 public neededUSD;
 
-    uint256 public usedSupply;
-    uint256 public maxSupply = 15000;
+    uint256 public maxSupply;
+    uint256 public reservedSupply;
 
     receive() external payable {}
 
-    constructor() ERC721("BFGMisteryBox", "BFG-MB") {
+    constructor() ERC721("BFG Mistery Box NFT", "BFG-MB") {
         createPromoCode("0", owner());
         neededAvax = 13000000000000000000;
         neededUSD = 150000000;
-        tokenURI = "ipfs://QmaXkmxgHDMq57r3j1RYn4fnyKuMFpLbU9JxUFMDE7XmPL";
+        maxSupply = 15000;
+        reservedSupply = 7500;
+        tokenURI = "ipfs://QmTKiWjG5e17D6i82BWgu31kqnaYJzohTDP7hxenFfWScD";
     }
 
     function compareStrings(string memory a, string memory b)
@@ -50,8 +51,12 @@ contract GameItem is ERC721URIStorage, Ownable {
             keccak256(abi.encodePacked((b))));
     }
 
-    function _getAddressLength() public view returns (uint256) {
-        return arrayAddresses.length;
+    function totalSupply() public view returns(uint256) {
+		return _tokenIds.current();
+	}
+
+    function _getAddresses() public view returns (address[] memory) {
+        return arrayAddresses;
     }
 
     //only Owner
@@ -67,6 +72,11 @@ contract GameItem is ERC721URIStorage, Ownable {
 
         neededUSD = price;
     }
+
+    //only Owner
+    function setReservedSupply(uint256 newAmount) public onlyOwner {
+		reservedSupply = newAmount;
+	}
 
     //only Owner
     function createPromoCode(string memory _code, address _user)
@@ -98,11 +108,30 @@ contract GameItem is ERC721URIStorage, Ownable {
         require(amountAVAX > 0 || amountUSDT > 0, "No tokens to transfer");
 
         if (amountAVAX > 0) {
-            payable(owner()).transfer(amountAVAX);
+            (bool success, ) = payable(owner()).call{value: amountAVAX}("");
+
+            require(success, "AVAX Transaction: Failed to transfer funds");
         }
         if (amountUSDT > 0) {
             USD.safeTransfer(owner(), amountUSDT);
         }
+    }
+
+    //only Owner
+    function mintReserved(address player, string memory _code, uint256 quantity_) public onlyOwner returns (uint256){
+        uint256 newSupply = _tokenIds.current() + quantity_;
+
+        require(reservedSupply > 0, "No more mintable reserves");
+        require(newSupply <= maxSupply, "Max supply reached");
+        require(
+            quantity_ > 0,
+            "Selected quantity of mint boxes must be greater than 0."
+        );
+        require(codeAddress[_code] != address(0), "Not a valid code.");
+        
+        reservedSupply -= quantity_;
+
+        return _mintNFT(player, _code, quantity_);
     }
 
     function mintBox(
@@ -111,7 +140,13 @@ contract GameItem is ERC721URIStorage, Ownable {
         uint256 quantity_
     ) public payable returns (uint256) {
         //is totalSupply reached
-        require((usedSupply + quantity_) <= maxSupply, "Max supply reached");
+        uint256 newSupply = _tokenIds.current() + quantity_;
+
+        require(newSupply <= maxSupply, "Max supply reached");
+        require(
+            newSupply <= (maxSupply - reservedSupply),
+            "Remaining tokens are reserved"
+        );
 
         //check if more than one mint
         require(
@@ -166,13 +201,13 @@ contract GameItem is ERC721URIStorage, Ownable {
     ) internal returns (uint256) {
         for (uint256 i = 0; i < quantity_; i++) {
             uint256 newItemId = _tokenIds.current();
+
             _mint(player, newItemId);
             _setTokenURI(newItemId, tokenURI);
 
             _tokenIds.increment();
         }
 
-        usedSupply += quantity_;
         points[codeAddress[_code]] += quantity_;
 
         return 1;
