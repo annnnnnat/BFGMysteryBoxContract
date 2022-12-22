@@ -13,7 +13,6 @@ contract BFGMysteryBox is ERC721A, Ownable {
     IERC20 public immutable USD =
         IERC20(0x5425890298aed601595a70AB815c96711a31Bc65);
 
-
     mapping(address => string) public code;
     mapping(string => address) public codeAddress;
     mapping(address => uint256) public points;
@@ -49,15 +48,24 @@ contract BFGMysteryBox is ERC721A, Ownable {
         return "ipfs://QmdUFuZmeKGit6kjuotbMEm1mzeh4Hg9am25ou3mJVXcUY/";
     }
 
-    function _startTokenId() internal view override virtual returns (uint256) {
+    function _startTokenId() internal view virtual override returns (uint256) {
         return 1;
     }
 
-    function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        virtual
+        override
+        returns (string memory)
+    {
         if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
 
         string memory baseURI = _baseURI();
-        return bytes(baseURI).length != 0 ? string(abi.encodePacked(baseURI, _toString(tokenId), ".json")) : '';
+        return
+            bytes(baseURI).length != 0
+                ? string(abi.encodePacked(baseURI, _toString(tokenId), ".json"))
+                : "";
     }
 
     function _getAddresses() public view returns (address[] memory) {
@@ -105,7 +113,7 @@ contract BFGMysteryBox is ERC721A, Ownable {
         arrayAddresses.push(_user);
     }
 
-    function getPromoCode(string memory _code) public{
+    function publicPromoCode(string memory _code) public {
         require(!compareStrings(_code, ""), "Provide a valid code");
         require(
             codeAddress[_code] == address(0),
@@ -116,7 +124,7 @@ contract BFGMysteryBox is ERC721A, Ownable {
             compareStrings(code[msg.sender], ""),
             "You already have a code for this address"
         );
-        
+
         codeAddress[_code] = msg.sender;
         code[msg.sender] = _code;
 
@@ -161,7 +169,7 @@ contract BFGMysteryBox is ERC721A, Ownable {
         require(codeAddress[_code] != address(0), "Not a valid code.");
 
         reservedSupply -= quantity_;
-        
+
         points[codeAddress[_code]] += quantity_;
         _mintNFT(player, quantity_);
     }
@@ -227,10 +235,7 @@ contract BFGMysteryBox is ERC721A, Ownable {
         }
     }
 
-    function _mintNFT(
-        address player,
-        uint256 quantity_
-    ) internal {
+    function _mintNFT(address player, uint256 quantity_) internal {
         _safeMint(player, quantity_);
     }
 }
