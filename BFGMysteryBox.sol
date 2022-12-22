@@ -3,21 +3,16 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-
-import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract BFGMysteryBox is ERC721URIStorage, Ownable {
-    using SafeERC20 for IERC20;
+import "erc721a/contracts/ERC721A.sol";
 
-    using Counters for Counters.Counter;
-    Counters.Counter private _tokenIds;
+contract BFGMysteryBox is ERC721A, Ownable {
+    using SafeERC20 for IERC20;
 
     IERC20 public immutable USD =
         IERC20(0x5425890298aed601595a70AB815c96711a31Bc65);
 
-    string public tokenURI;
 
     mapping(address => string) public code;
     mapping(string => address) public codeAddress;
@@ -28,18 +23,17 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
     uint256 public neededAvax;
     uint256 public neededUSD;
 
-    uint256 public maxSupply;
+    uint256 public MAX_SUPPLY;
     uint256 public reservedSupply;
 
     receive() external payable {}
 
-    constructor() ERC721("BFG Mistery Box NFT", "BFG-MB") {
+    constructor() ERC721A("BFG Mistery Box NFT", "BFG-MB") {
         createPromoCode("0", owner());
         neededAvax = 13000000000000000000;
         neededUSD = 150000000;
-        maxSupply = 15000;
+        MAX_SUPPLY = 15000;
         reservedSupply = 7500;
-        tokenURI = "ipfs://QmTKiWjG5e17D6i82BWgu31kqnaYJzohTDP7hxenFfWScD";
     }
 
     function compareStrings(string memory a, string memory b)
@@ -51,8 +45,19 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
             keccak256(abi.encodePacked((b))));
     }
 
-    function totalSupply() public view returns (uint256) {
-        return _tokenIds.current();
+    function _baseURI() internal pure override returns (string memory) {
+        return "ipfs://QmdUFuZmeKGit6kjuotbMEm1mzeh4Hg9am25ou3mJVXcUY/";
+    }
+
+    function _startTokenId() internal view override virtual returns (uint256) {
+        return 1;
+    }
+
+    function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
+        if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
+
+        string memory baseURI = _baseURI();
+        return bytes(baseURI).length != 0 ? string(abi.encodePacked(baseURI, _toString(tokenId), ".json")) : '';
     }
 
     function _getAddresses() public view returns (address[] memory) {
@@ -100,6 +105,24 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
         arrayAddresses.push(_user);
     }
 
+    function getPromoCode(string memory _code) public{
+        require(!compareStrings(_code, ""), "Provide a valid code");
+        require(
+            codeAddress[_code] == address(0),
+            "Code is already used for an address"
+        );
+        //check if address already has a code
+        require(
+            compareStrings(code[msg.sender], ""),
+            "You already have a code for this address"
+        );
+        
+        codeAddress[_code] = msg.sender;
+        code[msg.sender] = _code;
+
+        arrayAddresses.push(msg.sender);
+    }
+
     //only Owner
     function withdrawTokens() public onlyOwner {
         uint256 amountAVAX = address(this).balance;
@@ -123,14 +146,14 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
         string memory _code,
         uint256 quantity_
     ) public onlyOwner {
-        uint256 newSupply = _tokenIds.current() + quantity_;
+        uint256 newSupply = totalSupply() + quantity_;
 
         require(
             reservedSupply >= quantity_,
             "Quantity exceeds mintable reserves"
         );
         require(reservedSupply > 0, "No more mintable reserves");
-        require(newSupply <= maxSupply, "Max supply reached");
+        require(newSupply <= MAX_SUPPLY, "Max supply reached");
         require(
             quantity_ > 0,
             "Selected quantity of mint boxes must be greater than 0."
@@ -138,8 +161,9 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
         require(codeAddress[_code] != address(0), "Not a valid code.");
 
         reservedSupply -= quantity_;
-
-        _mintNFT(player, _code, quantity_);
+        
+        points[codeAddress[_code]] += quantity_;
+        _mintNFT(player, quantity_);
     }
 
     function mintBox(
@@ -148,11 +172,11 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
         uint256 quantity_
     ) public payable {
         //is totalSupply reached
-        uint256 newSupply = _tokenIds.current() + quantity_;
+        uint256 newSupply = totalSupply() + quantity_;
 
-        require(newSupply <= maxSupply, "Max supply reached");
+        require(newSupply <= MAX_SUPPLY, "Max supply reached");
         require(
-            newSupply <= (maxSupply - reservedSupply),
+            newSupply <= (MAX_SUPPLY - reservedSupply),
             "Remaining tokens are reserved"
         );
 
@@ -184,7 +208,8 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
                 "transferFrom failed"
             );
 
-            _mintNFT(msg.sender, _code, quantity_);
+            points[codeAddress[_code]] += quantity_;
+            _mintNFT(msg.sender, quantity_);
         }
 
         //AVAX
@@ -196,22 +221,16 @@ contract BFGMysteryBox is ERC721URIStorage, Ownable {
             );
             require(msg.value == calAVAX, "Invalid payment attempt");
 
-            _mintNFT(msg.sender, _code, quantity_);
+            points[codeAddress[_code]] += quantity_;
+
+            _mintNFT(msg.sender, quantity_);
         }
     }
 
     function _mintNFT(
         address player,
-        string memory _code,
         uint256 quantity_
     ) internal {
-        for (uint256 i = 0; i < quantity_; i++) {
-            _tokenIds.increment();
-
-            _safeMint(player, _tokenIds.current());
-            _setTokenURI(_tokenIds.current(), tokenURI);
-        }
-
-        points[codeAddress[_code]] += quantity_;
+        _safeMint(player, quantity_);
     }
 }
